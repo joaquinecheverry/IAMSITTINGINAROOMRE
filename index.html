@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I Am Sitting in a Room - Digital Recreation</title>
+</head>
+<body>
+    <div class="container">
+        <h1>I Am Sitting in a Room</h1>
+        <p class="subtitle">Digital Recreation of Alvin Lucier's 1969 Piece</p>
+        
+        <div class="generation-counter">
+            Generation: <span id="generationCount">0</span>
+        </div>
+
+        <div class="status" id="status">Ready to begin</div>
+
+        <div class="controls">
+            <button id="recordBtn" onclick="startRecording()">Start Initial Recording</button>
+            <button id="stopBtn" onclick="stopRecording()" disabled>Stop & Begin Loop</button>
+            <button id="resetBtn" onclick="resetProcess()">Reset</button>
+        </div>
+
+        <div class="audio-controls">
+            <div class="volume-control">
+                <label for="volumeSlider">Playback Volume:</label>
+                <input type="range" id="volumeSlider" min="0" max="100" value="80" onchange="updateVolume()">
+                <span id="volumeValue">80%</span>
+            </div>
+        </div>
+
+        <div class="waveform" id="waveform">
+            <div class="wave-bars" id="waveBars"></div>
+        </div>
+
+        <div class="info-panel">
+            <div id="processInfo">
+                <p><strong>How it works:</strong> Each time you record, the system plays back the previous recording while capturing new audio. This creates the same acoustic feedback loop as Lucier's original piece, gradually transforming speech into the resonant frequencies of your space.</p>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <h3>Instructions:</h3>
+            <ol>
+                <li><strong>Record your initial input:</strong> Click "Start Initial Recording" and speak into your microphone</li>
+                <li><strong>Begin the loop:</strong> Click "Stop & Begin Loop" when finished speaking</li>
+                <li><strong>Watch the process:</strong> The system will now automatically play and re-record continuously</li>
+                <li><strong>Observe the decay:</strong> Each generation will degrade more, emphasizing room acoustics</li>
+                <li><strong>Reset anytime:</strong> Click "Reset" to stop the loop and start over</li>
+            </ol>
+            <p><strong>Note:</strong> Once you start the loop, it will continue automatically. The speech will gradually transform into the resonant frequencies of your room, just like Lucier's original piece.</p>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let currentAudio = null;
+        let generation = 0;
+        let isRecording = false;
+        let isProcessing = false;
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let animationId;
+        let continuousLoop = false;
+
+        // Initialize wave bars
+        function initWaveform() {
+            const waveBars = document.getElementById('waveBars');
+            waveBars.innerHTML = '';
+            for (let i = 0; i < 50; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'wave-bar';
+                bar.style.height = '5px';
+                waveBars.appendChild(bar);
+            }
+        }
+
+        // Update wave visualization (disabled)
+        function updateWaveform() {
+            // Visualization disabled - bars remain static
+            return;
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    } 
+                });
+                
+                // Set up audio analysis
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                
+                analyser.fftSize = 256;
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                audioChunks = [];
+                mediaRecorder = new MediaRecorder(stream, { 
+                    mimeType: 'audio/webm; codecs=opus' 
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(track => track.stop());
+                    await processRecording();
+                };
+                
+                mediaRecorder.start(100);
+                isRecording = true;
+                
+                document.getElementById('status').textContent = 'Recording initial input...';
+                document.getElementById('recordBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                
+                updateWaveform();
+                
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                alert('Error accessing microphone. Please ensure microphone permissions are granted.');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                isRecording = false;
+                continuousLoop = true; // Enable continuous loop
+                mediaRecorder.stop();
+            }
+        }
+
+        async function processRecording() {
+            isProcessing = true;
+            document.getElementById('status').textContent = 'Processing generation ' + (generation + 1) + '...';
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm; codecs=opus' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            if (currentAudio) {
+                currentAudio.pause();
+                URL.revokeObjectURL(currentAudio.src);
+            }
+            
+            currentAudio = new Audio(audioUrl);
+            
+            // Update volume
+            const volume = document.getElementById('volumeSlider').value / 100;
+            currentAudio.volume = volume;
+            
+            // Set up audio analysis for playback
+            if (audioContext) {
+                const source = audioContext.createMediaElementSource(currentAudio);
+                source.connect(analyser);
+                source.connect(audioContext.destination);
+            }
+            
+            generation++;
+            document.getElementById('generationCount').textContent = generation;
+            
+            currentAudio.onended = () => {
+                if (continuousLoop) {
+                    // Automatically start next recording cycle
+                    setTimeout(() => {
+                        startNextCycle();
+                    }, 100);
+                } else {
+                    isProcessing = false;
+                    document.getElementById('status').textContent = `Generation ${generation} complete - Ready for next recording`;
+                    document.getElementById('recordBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    
+                    // Stop wave animation
+                    if (animationId) {
+                        cancelAnimationFrame(animationId);
+                    }
+                    
+                    // Reset wave bars
+                    const bars = document.querySelectorAll('.wave-bar');
+                    bars.forEach(bar => bar.style.height = '5px');
+                }
+            };
+            
+            // For continuous loop: start recording FIRST, then play
+            if (continuousLoop) {
+                await startRecordingWhilePlaying();
+                setTimeout(() => {
+                    currentAudio.play().then(() => {
+                        document.getElementById('status').textContent = 'Playing generation ' + generation + ' and recording generation ' + (generation + 1);
+                        updateWaveform();
+                    }).catch(error => {
+                        console.error('Error playing audio:', error);
+                        isProcessing = false;
+                        document.getElementById('status').textContent = 'Error - Click Reset to try again';
+                    });
+                }, 100);
+            } else {
+                // Original behavior for first playback
+                setTimeout(() => {
+                    currentAudio.play().then(() => {
+                        document.getElementById('status').textContent = 'Playing back generation ' + generation + '...';
+                        updateWaveform();
+                    }).catch(error => {
+                        console.error('Error playing audio:', error);
+                        isProcessing = false;
+                        document.getElementById('status').textContent = 'Error - Click Reset to try again';
+                    });
+                }, 500);
+            }
+        }
+
+        async function startRecordingWhilePlaying() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    } 
+                });
+                
+                audioChunks = [];
+                mediaRecorder = new MediaRecorder(stream, { 
+                    mimeType: 'audio/webm; codecs=opus' 
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = () => {
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.start(100);
+                
+            } catch (error) {
+                console.error('Error starting automatic recording:', error);
+            }
+        }
+
+        function startNextCycle() {
+            if (continuousLoop && mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                
+                // Wait for the recording to finish processing, then continue
+                setTimeout(() => {
+                    processRecording();
+                }, 200);
+            }
+        }
+
+        function resetProcess() {
+            continuousLoop = false; // Stop the continuous loop
+            
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+            
+            if (currentAudio) {
+                currentAudio.pause();
+                URL.revokeObjectURL(currentAudio.src);
+                currentAudio = null;
+            }
+            
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            
+            generation = 0;
+            isRecording = false;
+            isProcessing = false;
+            audioChunks = [];
+            
+            document.getElementById('generationCount').textContent = '0';
+            document.getElementById('status').textContent = 'Ready to begin';
+            document.getElementById('recordBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            
+            // Reset wave bars
+            const bars = document.querySelectorAll('.wave-bar');
+            bars.forEach(bar => bar.style.height = '5px');
+        }
+
+        function updateVolume() {
+            const volume = document.getElementById('volumeSlider').value;
+            document.getElementById('volumeValue').textContent = volume + '%';
+            
+            if (currentAudio) {
+                currentAudio.volume = volume / 100;
+            }
+        }
+
+        // Initialize on load
+        window.onload = () => {
+            initWaveform();
+        };
+    </script>
+</body>
+</html>
