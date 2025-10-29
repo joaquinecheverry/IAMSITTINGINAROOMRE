@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>I Am Sitting in a Room - Digital Recreation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>I/you/we are sitting in a/my/this room</h1>
-        <p class="subtitle">Digital Recreation of Alvin Lucier's 1969 Piece "I Am Sitting in a Room, by Joaquin Echeverry Braver</p>
+        <h1>I Am Sitting in a Room</h1>
+        <p class="subtitle">Digital Recreation of Alvin Lucier's 1969 Piece</p>
         
         <div class="generation-counter">
             Generation: <span id="generationCount">0</span>
@@ -23,15 +24,69 @@
         </div>
 
         <div class="audio-controls">
-            <div class="volume-control">
-                <label for="volumeSlider">Playback Volume:</label>
-                <input type="range" id="volumeSlider" min="0" max="100" value="80" onchange="updateVolume()">
+            <div class="control-group">
+                <label for="volumeSlider">Playback Volume</label>
+                <input type="range" id="volumeSlider" min="0" max="100" value="80" oninput="updateVolume()">
                 <span id="volumeValue">80%</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="delayTime">Delay Time</label>
+                <input type="range" id="delayTime" min="0" max="1000" value="250" step="10" oninput="updateDelay()">
+                <span id="delayTimeValue">250ms</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="delayFeedback">Delay Feedback</label>
+                <input type="range" id="delayFeedback" min="0" max="90" value="30" oninput="updateDelay()">
+                <span id="delayFeedbackValue">30%</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="delayWet">Delay Mix</label>
+                <input type="range" id="delayWet" min="0" max="100" value="0" oninput="updateDelay()">
+                <span id="delayWetValue">0%</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="reverbDecay">Reverb Decay</label>
+                <input type="range" id="reverbDecay" min="0.1" max="10" value="2" step="0.1" oninput="updateReverb()">
+                <span id="reverbDecayValue">2.0s</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="reverbWet">Reverb Mix</label>
+                <input type="range" id="reverbWet" min="0" max="100" value="0" oninput="updateReverb()">
+                <span id="reverbWetValue">0%</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="chorusFreq">Chorus Frequency</label>
+                <input type="range" id="chorusFreq" min="0.1" max="10" value="1.5" step="0.1" oninput="updateChorus()">
+                <span id="chorusFreqValue">1.5 Hz</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="chorusDepth">Chorus Depth</label>
+                <input type="range" id="chorusDepth" min="0" max="100" value="50" oninput="updateChorus()">
+                <span id="chorusDepthValue">50%</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="chorusWet">Chorus Mix</label>
+                <input type="range" id="chorusWet" min="0" max="100" value="0" oninput="updateChorus()">
+                <span id="chorusWetValue">0%</span>
             </div>
         </div>
 
         <div class="waveform" id="waveform">
             <div class="wave-bars" id="waveBars"></div>
+        </div>
+
+        <div class="info-panel">
+            <div id="processInfo">
+                <p><strong>How it works:</strong> Each time you record, the system plays back the previous recording while capturing new audio. This creates the same acoustic feedback loop as Lucier's original piece, gradually transforming speech into the resonant frequencies of your space.</p>
+            </div>
         </div>
 
         <div class="instructions">
@@ -59,8 +114,98 @@
         let dataArray;
         let animationId;
         let continuousLoop = false;
+        
+        // Tone.js effects
+        let tonePlayer;
+        let delay;
+        let reverb;
+        let chorus;
+        let volume;
 
-        // Initialize wave bars
+        async function initToneEffects() {
+            await Tone.start();
+            
+            // Create effects chain
+            volume = new Tone.Volume(0).toDestination();
+            chorus = new Tone.Chorus({
+                frequency: 1.5,
+                delayTime: 3.5,
+                depth: 0.5,
+                wet: 0
+            }).connect(volume);
+            chorus.start();
+            delay = new Tone.FeedbackDelay({
+                delayTime: "250ms",
+                feedback: 0.3,
+                wet: 0
+            }).connect(chorus);
+            reverb = new Tone.Reverb({
+                decay: 2,
+                wet: 0
+            }).connect(delay);
+            
+            updateVolume();
+            updateDelay();
+            updateReverb();
+            updateChorus();
+        }
+
+        function updateVolume() {
+            const vol = document.getElementById('volumeSlider').value;
+            document.getElementById('volumeValue').textContent = vol + '%';
+            
+            if (volume) {
+                // Convert 0-100 to dB scale (-60 to 0)
+                const db = vol === '0' ? -60 : (vol / 100) * 60 - 60;
+                volume.volume.value = db;
+            }
+        }
+
+        function updateDelay() {
+            const time = document.getElementById('delayTime').value;
+            const feedback = document.getElementById('delayFeedback').value;
+            const wet = document.getElementById('delayWet').value;
+            
+            document.getElementById('delayTimeValue').textContent = time + 'ms';
+            document.getElementById('delayFeedbackValue').textContent = feedback + '%';
+            document.getElementById('delayWetValue').textContent = wet + '%';
+            
+            if (delay) {
+                delay.delayTime.value = time / 1000; // Convert to seconds
+                delay.feedback.value = feedback / 100;
+                delay.wet.value = wet / 100;
+            }
+        }
+
+        function updateReverb() {
+            const decay = document.getElementById('reverbDecay').value;
+            const wet = document.getElementById('reverbWet').value;
+            
+            document.getElementById('reverbDecayValue').textContent = decay + 's';
+            document.getElementById('reverbWetValue').textContent = wet + '%';
+            
+            if (reverb) {
+                reverb.decay = parseFloat(decay);
+                reverb.wet.value = wet / 100;
+            }
+        }
+
+        function updateChorus() {
+            const freq = document.getElementById('chorusFreq').value;
+            const depth = document.getElementById('chorusDepth').value;
+            const wet = document.getElementById('chorusWet').value;
+            
+            document.getElementById('chorusFreqValue').textContent = freq + ' Hz';
+            document.getElementById('chorusDepthValue').textContent = depth + '%';
+            document.getElementById('chorusWetValue').textContent = wet + '%';
+            
+            if (chorus) {
+                chorus.frequency.value = parseFloat(freq);
+                chorus.depth = depth / 100;
+                chorus.wet.value = wet / 100;
+            }
+        }
+
         function initWaveform() {
             const waveBars = document.getElementById('waveBars');
             waveBars.innerHTML = '';
@@ -70,16 +215,19 @@
                 bar.style.height = '5px';
                 waveBars.appendChild(bar);
             }
-        }
 
-        // Update wave visualization (disabled)
+        }
         function updateWaveform() {
-            // Visualization disabled - bars remain static
             return;
         }
 
         async function startRecording() {
             try {
+                // Initialize Tone.js if not already done
+                if (!volume) {
+                    await initToneEffects();
+                }
+                
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
                         echoCancellation: false,
@@ -88,7 +236,6 @@
                     } 
                 });
                 
-                // Set up audio analysis
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioContext.createAnalyser();
                 const source = audioContext.createMediaStreamSource(stream);
@@ -131,7 +278,7 @@
         function stopRecording() {
             if (mediaRecorder && isRecording) {
                 isRecording = false;
-                continuousLoop = true; // Enable continuous loop
+                continuousLoop = true; 
                 mediaRecorder.stop();
             }
         }
@@ -143,30 +290,31 @@
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm; codecs=opus' });
             const audioUrl = URL.createObjectURL(audioBlob);
             
+            // Stop previous player if exists
+            if (tonePlayer) {
+                tonePlayer.stop();
+                tonePlayer.dispose();
+            }
+            
+            // Create new Tone.js player with effects chain
+            tonePlayer = new Tone.Player({
+                url: audioUrl,
+                onload: () => {
+                    console.log('Audio loaded');
+                }
+            }).connect(reverb);
+            
             if (currentAudio) {
-                currentAudio.pause();
-                URL.revokeObjectURL(currentAudio.src);
+                URL.revokeObjectURL(currentAudio);
             }
-            
-            currentAudio = new Audio(audioUrl);
-            
-            // Update volume
-            const volume = document.getElementById('volumeSlider').value / 100;
-            currentAudio.volume = volume;
-            
-            // Set up audio analysis for playback
-            if (audioContext) {
-                const source = audioContext.createMediaElementSource(currentAudio);
-                source.connect(analyser);
-                source.connect(audioContext.destination);
-            }
+            currentAudio = audioUrl;
             
             generation++;
             document.getElementById('generationCount').textContent = generation;
             
-            currentAudio.onended = () => {
+            // Set up onended callback
+            tonePlayer.onstop = () => {
                 if (continuousLoop) {
-                    // Automatically start next recording cycle
                     setTimeout(() => {
                         startNextCycle();
                     }, 100);
@@ -176,12 +324,10 @@
                     document.getElementById('recordBtn').disabled = false;
                     document.getElementById('stopBtn').disabled = true;
                     
-                    // Stop wave animation
                     if (animationId) {
                         cancelAnimationFrame(animationId);
                     }
                     
-                    // Reset wave bars
                     const bars = document.querySelectorAll('.wave-bar');
                     bars.forEach(bar => bar.style.height = '5px');
                 }
@@ -191,26 +337,16 @@
             if (continuousLoop) {
                 await startRecordingWhilePlaying();
                 setTimeout(() => {
-                    currentAudio.play().then(() => {
-                        document.getElementById('status').textContent = 'Playing generation ' + generation + ' and recording generation ' + (generation + 1);
-                        updateWaveform();
-                    }).catch(error => {
-                        console.error('Error playing audio:', error);
-                        isProcessing = false;
-                        document.getElementById('status').textContent = 'Error - Click Reset to try again';
-                    });
+                    tonePlayer.start();
+                    document.getElementById('status').textContent = 'Playing generation ' + generation + ' and recording generation ' + (generation + 1);
+                    updateWaveform();
                 }, 100);
             } else {
                 // Original behavior for first playback
                 setTimeout(() => {
-                    currentAudio.play().then(() => {
-                        document.getElementById('status').textContent = 'Playing back generation ' + generation + '...';
-                        updateWaveform();
-                    }).catch(error => {
-                        console.error('Error playing audio:', error);
-                        isProcessing = false;
-                        document.getElementById('status').textContent = 'Error - Click Reset to try again';
-                    });
+                    tonePlayer.start();
+                    document.getElementById('status').textContent = 'Playing back generation ' + generation + '...';
+                    updateWaveform();
                 }, 500);
             }
         }
@@ -259,15 +395,20 @@
         }
 
         function resetProcess() {
-            continuousLoop = false; // Stop the continuous loop
+            continuousLoop = false;
             
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
             }
             
+            if (tonePlayer) {
+                tonePlayer.stop();
+                tonePlayer.dispose();
+                tonePlayer = null;
+            }
+            
             if (currentAudio) {
-                currentAudio.pause();
-                URL.revokeObjectURL(currentAudio.src);
+                URL.revokeObjectURL(currentAudio);
                 currentAudio = null;
             }
             
@@ -285,18 +426,8 @@
             document.getElementById('recordBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
             
-            // Reset wave bars
             const bars = document.querySelectorAll('.wave-bar');
             bars.forEach(bar => bar.style.height = '5px');
-        }
-
-        function updateVolume() {
-            const volume = document.getElementById('volumeSlider').value;
-            document.getElementById('volumeValue').textContent = volume + '%';
-            
-            if (currentAudio) {
-                currentAudio.volume = volume / 100;
-            }
         }
 
         // Initialize on load
